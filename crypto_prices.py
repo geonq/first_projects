@@ -1,14 +1,19 @@
 import requests
+import time
 
-def get_price(coin):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd"
+def get_prices(coins):
+    ids = ",".join(coins)
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
     response = requests.get(url)
     data = response.json()
-    print(data)  # add this line
-    return data[coin]["usd"]
+    return data
 
 coins = ["bitcoin", "ethereum", "solana"]
+prices = get_prices(coins)
 
 for coin in coins:
-    price = get_price(coin)
-    print(f"{coin.upper()}: ${price:,}")
+    if coin in prices:
+        price = prices[coin]["usd"]
+        print(f"{coin.upper()}: ${price:,}")
+    else:
+        print(f"{coin.upper()}: unavailable")
