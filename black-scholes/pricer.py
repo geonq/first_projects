@@ -131,3 +131,7 @@ print(f"QQQ Price: {qqq_price:.2f}")
 print(f"QQQ Volatility: {qqq_vol:.4f}")
 print(f"Call Option Price: {bsm.call_option_price():.2f}")
 print(f"Put Option Price: {bsm.put_option_price():.2f}")
+
+bsm_fresh = BlackScholesModel(S=qqq_price, K=qqq_price, T=1, r=0.05, sigma=qqq_vol)
+volatilities = np.linspace(0.1, 0.5, 100)
+plot_option_sensitivity(bsm_fresh, 'sigma', volatilities, 'call')
