@@ -6,8 +6,8 @@ import mplfinance as mpf            # financial charts (candlesticks etc) — im
 import plotly.graph_objects as go   # interactive charts — imported but not used here
 from datetime import datetime       # date handling — imported but not used here
 
-def fetch_options_data(AAPL):
-    ticker = yf.Ticker(AAPL)   # creates a Ticker object for any stock symbol
+def fetch_options_data(QQQ):
+    ticker = yf.Ticker(QQQ)   # creates a Ticker object for any stock symbol
     options_dates = ticker.options      # list of all available expiry dates
     # We'll use the nearest expiry date for our analysis 
     options_data = ticker.option_chain(options_dates[0]) # grab nearest expiry
@@ -15,7 +15,7 @@ def fetch_options_data(AAPL):
 
 # Example usage:
 jpm_calls, jpm_puts = fetch_options_data('JPM')
-
+qqq_stock_data = yf.download('QQQ', period='1y')
 jpm_stock_data = yf.download('JPM', period='1y')
 
 plt.figure(figsize=(10, 5))             # create a figure 10 inches wide, 5 inches tall
@@ -24,7 +24,7 @@ plt.title('JPM Historical Stock Price')
 plt.xlabel('Date')
 plt.ylabel('Stock Price (USD)')
 plt.grid(True)
-
+plt.show() 
 
 
 class BlackScholesModel:
@@ -101,6 +101,7 @@ plt.title('Delta of a Call Option as Underlying Price Changes')
 plt.xlabel('Stock Price')
 plt.ylabel('Delta')
 plt.grid(True)
+plt.show() 
 
 def plot_option_sensitivity(bs_model, parameter, values, option_type='call'):
     prices = []
@@ -110,14 +111,23 @@ def plot_option_sensitivity(bs_model, parameter, values, option_type='call'):
             prices.append(bs_model.call_option_price())
         else:
             prices.append(bs_model.put_option_price())
-
+    
+    print(f"Number of prices calculated: {len(prices)}")
+    print(f"First few prices: {prices[:5]}")
+    
     plt.figure(figsize=(10, 5))
     plt.plot(values, prices)
     plt.title(f'Option Price Sensitivity to {parameter.capitalize()}')
     plt.xlabel(parameter.capitalize())
     plt.ylabel('Option Price')
     plt.grid(True)
-    
-# Example usage:
-volatilities = np.linspace(0.1, 0.3, 100)
-plot_option_sensitivity(bsm, 'sigma', volatilities, 'call')
+    plt.show()
+
+qqq_price = float(qqq_stock_data['Close'].iloc[-1].item())
+qqq_vol = float(calculate_historical_volatility(qqq_stock_data).item())
+
+bsm = BlackScholesModel(S=float(qqq_price), K=float(qqq_price), T=1, r=0.05, sigma=float(qqq_vol))
+print(f"QQQ Price: {qqq_price:.2f}")
+print(f"QQQ Volatility: {qqq_vol:.4f}")
+print(f"Call Option Price: {bsm.call_option_price():.2f}")
+print(f"Put Option Price: {bsm.put_option_price():.2f}")
