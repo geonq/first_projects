@@ -24,3 +24,14 @@ def fetch_fred_rate():
 
 
 fetch_fred_rate()
+
+def fetch_qqq_data():
+    df = yf.download("QQQ", period="10y")
+    if df is None or df.empty:
+        raise ValueError("Failed to fetch data for QQQ.")
+    df.columns = df.columns.get_level_values(0)
+    df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
+    df = df.dropna()
+    return df
+
+print(fetch_qqq_data().tail())
