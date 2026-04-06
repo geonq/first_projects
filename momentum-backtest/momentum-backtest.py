@@ -6,8 +6,6 @@ import requests
 from io import StringIO
 
 trading_days: int = 252
-momentum_windows = [7, 14, 30]
-default_cost_bps = 5
 
 def fetch_fred_rate():
     response = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10")
@@ -16,10 +14,11 @@ def fetch_fred_rate():
     risk_free_rate = df["DGS10"].iloc[-1].item() / 100
     print(f"Risk-free rate: {risk_free_rate}")
     fred_rate_change = df["DGS10"].iloc[-1].item() - df["DGS10"].iloc[-2].item()
+    last_date = df["observation_date"].iloc[-1]
     if fred_rate_change > 0:
-        print(f"The risk-free rate has increased {abs(fred_rate_change):.2f}% since the last data point.")
+        print(f"The risk-free rate has increased {abs(fred_rate_change):.2f}% since {last_date}.")
     else:
-        print(f"The risk-free rate has decreased {abs(fred_rate_change):.2f}% since the last data point.")
+        print(f"The risk-free rate has decreased {abs(fred_rate_change):.2f}% since {last_date}.")
     return risk_free_rate
 
 def fetch_qqq_data():
@@ -32,17 +31,17 @@ def fetch_qqq_data():
     return df
 
 class MomentumBacktest:
-    def __init__(self, data, risk_free_rate, transaction_cost_bps=default_cost_bps, momentum_windows=momentum_windows):
+    def __init__(self, data, risk_free_rate, transaction_cost_bps=5, momentum_windows=None):
+        self.momentum_windows = momentum_windows or [7, 14, 30]
         self.data = data.copy()
         self.risk_free_rate = risk_free_rate
-        self.momentum_windows = momentum_windows
         self.transaction_cost_bps = transaction_cost_bps / 10_000
         self.results = None
     
     def generate_signals(self):
         for window in self.momentum_windows:
             self.data[f"mom_{window}"] = self.data["log_return"].rolling(window=window).sum()
-        self.data["position"]=((self.data["mom_7"]> 0) & (self.data["mom_14"]>0) & (self.data["mom_30"]>0)).astype(int)
+        self.data["position"] = pd.concat([self.data[f"mom_{w}"] > 0 for w in self.momentum_windows], axis=1).all(axis=1).astype(int)
         self.data["position"] = self.data["position"].shift(1).fillna(0)
         self.data["position_change"] = self.data["position"].diff().abs()
 
@@ -57,15 +56,17 @@ class MomentumBacktest:
         total = self.data["strategy_net_log_return"].sum()
         years = len(self.data) / trading_days
         std_vol = self.data["strategy_net_log_return"].std() * np.sqrt(trading_days)
-        sharpe = (total / years - self.risk_free_rate) / std_vol
+        annualized_return = np.exp(total / years) - 1
+        sharpe = (annualized_return - self.risk_free_rate) / std_vol
         running_max = self.data["cumulative_strategy"].cummax()
         drawdown = (self.data["cumulative_strategy"] - running_max) / running_max
         max_drawdown = drawdown.min()
         position_changes = self.data["position_change"].sum()
-        win_rate = (self.data[self.data["position"] == 1]["log_return"] > 0).mean()
+        win_rate = (self.data[self.data["position"] == 1]["strategy_net_log_return"] > 0).mean()
+        self.data["drawdown"] = drawdown
         return {
-                "total_return": total,
-                "annualized_return": total / years,
+                "total_return": np.exp(total) - 1,
+                "annualized_return": np.exp(total / years) - 1,
                 "volatility": std_vol,
                 "sharpe_ratio": sharpe,
                 "max_drawdown": max_drawdown,
@@ -93,6 +94,9 @@ class MomentumBacktest:
         print(f"Buy and Hold Total Return: {self.data['cumulative_buyhold'].iloc[-1].item() - 1:.2%}")
 
     def plot_results(self):
+        if self.results is None:
+            print("Run the backtest first.")
+            return
         # Chart 1: Equity curves
         plt.figure(figsize=(12, 6))
         plt.plot(self.data.index, self.data["cumulative_strategy"], label="Momentum Strategy")
@@ -105,8 +109,7 @@ class MomentumBacktest:
         plt.show()
 
         # Chart 2: Drawdown
-        running_max = self.data["cumulative_strategy"].cummax()
-        drawdown = (self.data["cumulative_strategy"] - running_max) / running_max
+        drawdown = self.data["drawdown"]
         plt.figure(figsize=(12, 6))
         plt.plot(self.data.index, drawdown, label="Drawdown", color="red")
         plt.title("Drawdown Over Time")
@@ -131,9 +134,9 @@ class MomentumBacktest:
 if __name__ == "__main__":
     try:
         risk_free_rate = fetch_fred_rate()
-    except Exception:
+    except requests.exceptions.RequestException:
         print("FRED unavailable, defaulting to 4%")
-        risk_free_rate = 0.04
+        risk_free_rate = 0.04  
     qqq_data = fetch_qqq_data()
     bt = MomentumBacktest(qqq_data, risk_free_rate)
     bt.run()
