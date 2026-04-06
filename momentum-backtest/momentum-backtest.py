@@ -21,8 +21,6 @@ def fetch_fred_rate():
         print(f"The risk-free rate has increased {abs(fred_rate_change):.2f}% since the last data point.")
     else:
         print(f"The risk-free rate has decreased {abs(fred_rate_change):.2f}% since the last data point.")
-
-
 fetch_fred_rate()
 
 def fetch_qqq_data():
@@ -33,5 +31,19 @@ def fetch_qqq_data():
     df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
     df = df.dropna()
     return df
-
 print(fetch_qqq_data().tail())
+
+class MomentumBacktest:
+    def __init__(self, data, risk_free_rate, transaction_cost_bps=default_cost_bps, momentum_windows=momentum_windows):
+        self.data = data.copy()
+        self.risk_free_rate = risk_free_rate
+        self.momentum_windows = momentum_windows
+        self.transaction_cost_bps = transaction_cost_bps / 10_000
+        self.results = None
+    
+    def generate_signals(self):
+        for window in self.momentum_windows:
+            self.data[f"mom_{window}"] = self.data["log_return"].rolling(window=window).sum()
+        self.data["position"]=((self.data["mom_7"]> 0) & (self.data["mom_14"]>0) & (self.data["mom_30"]>0)).astype(int)
+        self.data["position"] = self.data["position"].shift(1).fillna(0)
+        self.data["position_change"] = self.data["position"].diff().abs()
