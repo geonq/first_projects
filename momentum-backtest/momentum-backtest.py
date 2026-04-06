@@ -38,11 +38,44 @@ class MomentumBacktest:
         self.transaction_cost_bps = transaction_cost_bps / 10_000
         self.results: dict | None = None
     
-    def generate_signals(self):
+    def generate_signals(self, strategy="baseline"):
         for window in self.momentum_windows:
-            self.data[f"mom_{window}"] = self.data["log_return"].rolling(window=window).sum()
-        self.data["position"] = pd.concat([self.data[f"mom_{w}"] > 0 for w in self.momentum_windows], axis=1).all(axis=1).astype(int)
-        self.data["position"] = self.data["position"].shift(1).fillna(0)
+            self.data[f"mom_{window}"] = (
+                self.data["log_return"].rolling(window=window).sum()
+            )
+
+        if strategy == "baseline":
+            signal = pd.concat(
+                [self.data[f"mom_{w}"] > 0 for w in self.momentum_windows],
+                axis=1
+            ).all(axis=1).astype(int)
+
+        elif strategy == "majority":
+            signal = (
+                pd.concat(
+                    [self.data[f"mom_{w}"] > 0 for w in self.momentum_windows],
+                    axis=1
+                ).sum(axis=1) >= 2
+            ).astype(int)
+
+        elif strategy == "ma200":
+            self.data["ma200"] = self.data["Close"].rolling(200).mean()
+            signal = (
+                (self.data["mom_30"] > 0) &
+                (self.data["Close"] > self.data["ma200"])
+            ).astype(int)
+
+        elif strategy == "long_windows":
+            for w in [30, 60, 90]:
+                self.data[f"mom_{w}"] = (
+                   self.data["log_return"].rolling(window=w).sum()
+                )
+            signal = pd.concat(
+                [self.data[f"mom_{w}"] > 0 for w in [30, 60, 90]],
+                axis=1
+            ).all(axis=1).astype(int)
+
+        self.data["position"] = signal.shift(1).fillna(0)
         self.data["position_change"] = self.data["position"].diff().abs()
 
     def calculate_returns(self):
@@ -74,8 +107,8 @@ class MomentumBacktest:
                 "win_rate": win_rate
             }
 
-    def run(self):
-        self.generate_signals()
+    def run(self, strategy="baseline"):
+        self.generate_signals(strategy=strategy)
         self.calculate_returns()
         self.results = self.calculate_metrics()
         return self.results
@@ -196,18 +229,40 @@ class MonteCarloValidator:
         plt.show()
 
 if __name__ == "__main__":
-    risk_free_rate = 0.04
     try:
         risk_free_rate = fetch_fred_rate()
     except requests.exceptions.RequestException:
         print("FRED unavailable, defaulting to 4%")
+        risk_free_rate = 0.04
+
     qqq_data = fetch_qqq_data()
-    bt = MomentumBacktest(qqq_data, risk_free_rate)
-    bt.run()
-    bt.print_results()
-    bt.plot_results()
-    mc = MonteCarloValidator(bt)
-    mc.run()
-    mc.print_results()
-    mc.plot_results()
+
+    strategies = ["baseline", "majority", "ma200", "long_windows"]
+    summary = []
+
+    for s in strategies:
+        bt = MomentumBacktest(qqq_data.copy(), risk_free_rate)
+        bt.run(strategy=s)
+        assert bt.results is not None
+
+        mc = MonteCarloValidator(bt, n_simulations=1000)
+        mc.run()
+
+        p_value = (mc.simulated_sharpes >= bt.results["sharpe_ratio"]).mean()
+
+        summary.append({
+            "strategy":         s,
+            "sharpe":           round(bt.results["sharpe_ratio"], 3),
+            "ann_return":       round(bt.results["annualized_return"], 4),
+            "max_drawdown":     round(bt.results["max_drawdown"], 4),
+            "position_changes": bt.results["position_changes"],
+            "p_value":          round(p_value, 4),
+        })
+        print(f"\n=== {s.upper()} ===")
+        bt.print_results()
+        print(f"p-value: {p_value:.4f}")
+
+    print("\n\n=== COMPARISON TABLE ===")
+    df_summary = pd.DataFrame(summary)
+    print(df_summary.to_string(index=False))
 
