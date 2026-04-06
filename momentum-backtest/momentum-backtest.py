@@ -65,17 +65,75 @@ class MomentumBacktest:
         position_changes = self.data["position_change"].sum()
         win_rate = (self.data[self.data["position"] == 1]["log_return"] > 0).mean()
         return {
-            "total_return": total,
-            "annualized_return": total / years,
-            "volatility": std_vol,
-            "sharpe_ratio": sharpe,
-            "max_drawdown": max_drawdown,
-            "position_changes": position_changes,
-            "win_rate": win_rate
-        }
+                "total_return": total,
+                "annualized_return": total / years,
+                "volatility": std_vol,
+                "sharpe_ratio": sharpe,
+                "max_drawdown": max_drawdown,
+                "position_changes": position_changes,
+                "win_rate": win_rate
+            }
 
+    def run(self):
+        self.generate_signals()
+        self.calculate_returns()
+        self.results = self.calculate_metrics()
+        return self.results
+
+    def print_results(self):
+        if self.results is None:
+            print("Run the backtest first to see results.")
+            return
+        print(f"Total Return: {self.results['total_return']:.2%}")
+        print(f"Annualized Return: {self.results['annualized_return']:.2%}")
+        print(f"Volatility: {self.results['volatility']:.2%}")
+        print(f"Sharpe Ratio: {self.results['sharpe_ratio']:.2f}")
+        print(f"Max Drawdown: {self.results['max_drawdown']:.2%}")
+        print(f"Position Changes: {self.results['position_changes']}")
+        print(f"Win Rate: {self.results['win_rate']:.2%}")
+
+    def plot_results(self):
+        # Chart 1: Equity curves
+        plt.figure(figsize=(12, 6))
+        plt.plot(self.data.index, self.data["cumulative_strategy"], label="Momentum Strategy")
+        plt.plot(self.data.index, self.data["cumulative_buyhold"], label="Buy and Hold")
+        plt.title("Cumulative Returns")
+        plt.xlabel("Date")
+        plt.ylabel("Growth of $1")
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+        # Chart 2: Drawdown
+        running_max = self.data["cumulative_strategy"].cummax()
+        drawdown = (self.data["cumulative_strategy"] - running_max) / running_max
+        plt.figure(figsize=(12, 6))
+        plt.plot(self.data.index, drawdown, label="Drawdown", color="red")
+        plt.title("Drawdown Over Time")
+        plt.xlabel("Date")
+        plt.ylabel("Drawdown")
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+        # Chart 3: Position
+        plt.figure(figsize=(12, 6))
+        plt.plot(self.data.index, self.data["position"], label="Position", color="green")
+        plt.title("Position Over Time")
+        plt.xlabel("Date")
+        plt.ylabel("Position (1=Long, 0=Cash)")
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+        
 
 if __name__ == "__main__":
     risk_free_rate = fetch_fred_rate()
     qqq_data = fetch_qqq_data()
     print(qqq_data.tail())
+    bt = MomentumBacktest(qqq_data, risk_free_rate)
+    bt.run()
+    bt.print_results()
+    bt.plot_results()
+
