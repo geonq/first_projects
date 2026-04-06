@@ -90,7 +90,7 @@ class MomentumBacktest:
         print(f"Max Drawdown: {self.results['max_drawdown']:.2%}")
         print(f"Position Changes: {self.results['position_changes']}")
         print(f"Win Rate: {self.results['win_rate']:.2%}")
-        print(f"Buy and Hold Total Return: {self.data['cumulative_buyhold'].iloc[-1] - 1:.2%}")
+        print(f"Buy and Hold Total Return: {self.data['cumulative_buyhold'].iloc[-1].item() - 1:.2%}")
 
     def plot_results(self):
         # Chart 1: Equity curves
@@ -129,10 +129,13 @@ class MomentumBacktest:
         
 
 if __name__ == "__main__":
-    risk_free_rate = fetch_fred_rate()
+    try:
+        risk_free_rate = fetch_fred_rate()
+    except Exception:
+        print("FRED unavailable, defaulting to 4%")
+        risk_free_rate = 0.04
     qqq_data = fetch_qqq_data()
     bt = MomentumBacktest(qqq_data, risk_free_rate)
     bt.run()
     bt.print_results()
     bt.plot_results()
-
