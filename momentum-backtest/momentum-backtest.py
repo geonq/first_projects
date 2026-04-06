@@ -239,6 +239,8 @@ if __name__ == "__main__":
 
     strategies = ["baseline", "majority", "ma200", "long_windows"]
     summary = []
+    backtests: dict[str, MomentumBacktest] = {}
+    monte_carlos: dict[str, MonteCarloValidator] = {}
 
     for s in strategies:
         bt = MomentumBacktest(qqq_data.copy(), risk_free_rate)
@@ -249,6 +251,9 @@ if __name__ == "__main__":
         mc.run()
 
         p_value = (mc.simulated_sharpes >= bt.results["sharpe_ratio"]).mean()
+
+        backtests[s] = bt
+        monte_carlos[s] = mc
 
         summary.append({
             "strategy":         s,
@@ -265,4 +270,40 @@ if __name__ == "__main__":
     print("\n\n=== COMPARISON TABLE ===")
     df_summary = pd.DataFrame(summary)
     print(df_summary.to_string(index=False))
+
+    # Chart 1: All equity curves + buy-and-hold
+    plt.figure(figsize=(14, 7))
+    for s, bt in backtests.items():
+        plt.plot(bt.data.index, bt.data["cumulative_strategy"], label=s)
+    plt.plot(bt.data.index, bt.data["cumulative_buyhold"], label="Buy & Hold", color="black", linestyle="--")
+    plt.title("Cumulative Returns — All Strategies")
+    plt.xlabel("Date")
+    plt.ylabel("Growth of $1")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+    # Chart 2: All drawdowns
+    plt.figure(figsize=(14, 7))
+    for s, bt in backtests.items():
+        plt.plot(bt.data.index, bt.data["drawdown"], label=s)
+    plt.title("Drawdown — All Strategies")
+    plt.xlabel("Date")
+    plt.ylabel("Drawdown")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+    # Chart 3: Monte Carlo histograms
+    plt.figure(figsize=(14, 7))
+    for s, mc in monte_carlos.items():
+        assert mc.backtest.results is not None
+        plt.hist(mc.simulated_sharpes, bins=80, alpha=0.4, label=f"{s} (shuffled)")
+        plt.axvline(mc.backtest.results["sharpe_ratio"], linewidth=2, label=f"{s} actual")
+    plt.title("Monte Carlo Validation — All Strategies")
+    plt.xlabel("Sharpe Ratio")
+    plt.ylabel("Frequency")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.show()
 
