@@ -8,12 +8,12 @@ from io import StringIO
 trading_days: int = 252
 
 def fetch_fred_rate():
-    response = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10")
+    response = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS3MO")
     df = pd.read_csv(StringIO(response.text), na_values=["."])
     df = df.dropna()
-    risk_free_rate = df["DGS10"].iloc[-1].item() / 100
+    risk_free_rate = df["DGS3MO"].iloc[-1].item() / 100
     print(f"Risk-free rate: {risk_free_rate}")
-    fred_rate_change = df["DGS10"].iloc[-1].item() - df["DGS10"].iloc[-2].item()
+    fred_rate_change = df["DGS3MO"].iloc[-1].item() - df["DGS3MO"].iloc[-2].item()
     last_date = df["observation_date"].iloc[-1]
     if fred_rate_change > 0:
         print(f"The risk-free rate has increased {abs(fred_rate_change):.2f}% since {last_date}.")
