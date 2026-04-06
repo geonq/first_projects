@@ -12,7 +12,6 @@ default_cost_bps = 5
 def fetch_fred_rate():
     response = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10")
     df = pd.read_csv(StringIO(response.text), na_values=["."])
-    print(df.tail())
     df = df.dropna()
     risk_free_rate = df["DGS10"].iloc[-1].item() / 100
     print(f"Risk-free rate: {risk_free_rate}")
@@ -91,6 +90,7 @@ class MomentumBacktest:
         print(f"Max Drawdown: {self.results['max_drawdown']:.2%}")
         print(f"Position Changes: {self.results['position_changes']}")
         print(f"Win Rate: {self.results['win_rate']:.2%}")
+        print(f"Buy and Hold Total Return: {self.data['cumulative_buyhold'].iloc[-1] - 1:.2%}")
 
     def plot_results(self):
         # Chart 1: Equity curves
@@ -131,7 +131,6 @@ class MomentumBacktest:
 if __name__ == "__main__":
     risk_free_rate = fetch_fred_rate()
     qqq_data = fetch_qqq_data()
-    print(qqq_data.tail())
     bt = MomentumBacktest(qqq_data, risk_free_rate)
     bt.run()
     bt.print_results()
