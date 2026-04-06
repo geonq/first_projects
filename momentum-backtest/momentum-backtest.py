@@ -31,12 +31,12 @@ def fetch_qqq_data():
     return df
 
 class MomentumBacktest:
-    def __init__(self, data, risk_free_rate, transaction_cost_bps=5, momentum_windows=None):
+    def __init__(self, data, risk_free_rate, transaction_cost_bps: float = 5, momentum_windows=None):
         self.momentum_windows = momentum_windows or [7, 14, 30]
         self.data = data.copy()
         self.risk_free_rate = risk_free_rate
         self.transaction_cost_bps = transaction_cost_bps / 10_000
-        self.results = None
+        self.results: dict | None = None
     
     def generate_signals(self):
         for window in self.momentum_windows:
@@ -129,16 +129,85 @@ class MomentumBacktest:
         plt.grid()
         plt.show()
 
-        
+class MonteCarloValidator:
+    def __init__(self, backtest: MomentumBacktest, n_simulations=10_000):
+        self.backtest = backtest
+        self.n_simulations = n_simulations
+        self.simulated_sharpes: np.ndarray = np.array([])
+
+    def run(self):
+        assert self.backtest.results is not None, "Run the backtest first."
+        log_returns = self.backtest.data["log_return"].values
+        actual_sharpe = self.backtest.results["sharpe_ratio"]
+        sharpes: list[float] = []
+
+        for _ in range(self.n_simulations):
+            shuffled = np.random.permutation(log_returns)
+            shuffled_series = pd.Series(
+                shuffled,
+                index=self.backtest.data.index
+            )
+            sim_df = self.backtest.data.copy()
+            sim_df["log_return"] = shuffled_series
+
+            sim_bt = MomentumBacktest(
+                sim_df[["log_return"]],
+                self.backtest.risk_free_rate,
+                self.backtest.transaction_cost_bps * 10_000
+            )
+            sim_bt.run()
+            assert sim_bt.results is not None
+            sharpes.append(sim_bt.results["sharpe_ratio"])
+
+        self.simulated_sharpes = np.array(sharpes)
+        p_value = (self.simulated_sharpes >= actual_sharpe).mean()
+        return p_value
+
+    def print_results(self):
+        assert self.backtest.results is not None, "Run the backtest first."
+        actual_sharpe = self.backtest.results["sharpe_ratio"]
+        p_value = (self.simulated_sharpes >= actual_sharpe).mean()
+        percentile = (self.simulated_sharpes < actual_sharpe).mean() * 100
+
+        print(f"\n--- Monte Carlo Validation ({self.n_simulations:,} simulations) ---")
+        print(f"Actual Sharpe:     {actual_sharpe:.3f}")
+        print(f"Simulated mean:    {self.simulated_sharpes.mean():.3f}")
+        print(f"Simulated std:     {self.simulated_sharpes.std():.3f}")
+        print(f"Percentile rank:   {percentile:.1f}th")
+        print(f"p-value:           {p_value:.4f}")
+        if p_value < 0.05:
+            print("RESULT: Strategy shows statistically significant edge (p < 0.05)")
+        else:
+            print("RESULT: Cannot reject null hypothesis — may be noise")
+
+    def plot_results(self):
+        assert self.backtest.results is not None, "Run the backtest first."
+        actual_sharpe = self.backtest.results["sharpe_ratio"]
+        plt.figure(figsize=(10, 5))
+        plt.hist(self.simulated_sharpes, bins=100, color="steelblue",
+                 edgecolor="white", alpha=0.8, label="Shuffled (random)")
+        plt.axvline(actual_sharpe, color="red", linewidth=2,
+                    label=f"Actual Sharpe: {actual_sharpe:.3f}")
+        plt.title("Monte Carlo Validation — Is the Edge Real?")
+        plt.xlabel("Sharpe Ratio")
+        plt.ylabel("Frequency")
+        plt.legend()
+        plt.grid(alpha=0.3)
+        plt.show()
 
 if __name__ == "__main__":
+    risk_free_rate = 0.04
     try:
         risk_free_rate = fetch_fred_rate()
     except requests.exceptions.RequestException:
         print("FRED unavailable, defaulting to 4%")
-        risk_free_rate = 0.04  
     qqq_data = fetch_qqq_data()
     bt = MomentumBacktest(qqq_data, risk_free_rate)
     bt.run()
     bt.print_results()
     bt.plot_results()
+    mc = MonteCarloValidator(bt)
+    mc.run()
+    mc.print_results()
+    mc.plot_results()
+
