@@ -21,7 +21,7 @@ def fetch_fred_rate():
         print(f"The risk-free rate has increased {abs(fred_rate_change):.2f}% since the last data point.")
     else:
         print(f"The risk-free rate has decreased {abs(fred_rate_change):.2f}% since the last data point.")
-fetch_fred_rate()
+    return risk_free_rate
 
 def fetch_qqq_data():
     df = yf.download("QQQ", period="10y")
@@ -31,7 +31,6 @@ def fetch_qqq_data():
     df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
     df = df.dropna()
     return df
-print(fetch_qqq_data().tail())
 
 class MomentumBacktest:
     def __init__(self, data, risk_free_rate, transaction_cost_bps=default_cost_bps, momentum_windows=momentum_windows):
@@ -47,3 +46,36 @@ class MomentumBacktest:
         self.data["position"]=((self.data["mom_7"]> 0) & (self.data["mom_14"]>0) & (self.data["mom_30"]>0)).astype(int)
         self.data["position"] = self.data["position"].shift(1).fillna(0)
         self.data["position_change"] = self.data["position"].diff().abs()
+
+    def calculate_returns(self):
+        self.data["strategy_log_return"] = self.data["position"] * self.data["log_return"]
+        self.data["cost"] = self.data["position_change"] * self.transaction_cost_bps
+        self.data["strategy_net_log_return"] = self.data["strategy_log_return"] - self.data["cost"]
+        self.data["cumulative_strategy"] = self.data["strategy_net_log_return"].cumsum().apply(np.exp)
+        self.data["cumulative_buyhold"] = self.data["log_return"].cumsum().apply(np.exp)
+    
+    def calculate_metrics(self):
+        total = self.data["strategy_net_log_return"].sum()
+        years = len(self.data) / trading_days
+        std_vol = self.data["strategy_net_log_return"].std() * np.sqrt(trading_days)
+        sharpe = (total / years - self.risk_free_rate) / std_vol
+        running_max = self.data["cumulative_strategy"].cummax()
+        drawdown = (self.data["cumulative_strategy"] - running_max) / running_max
+        max_drawdown = drawdown.min()
+        position_changes = self.data["position_change"].sum()
+        win_rate = (self.data[self.data["position"] == 1]["log_return"] > 0).mean()
+        return {
+            "total_return": total,
+            "annualized_return": total / years,
+            "volatility": std_vol,
+            "sharpe_ratio": sharpe,
+            "max_drawdown": max_drawdown,
+            "position_changes": position_changes,
+            "win_rate": win_rate
+        }
+
+
+if __name__ == "__main__":
+    risk_free_rate = fetch_fred_rate()
+    qqq_data = fetch_qqq_data()
+    print(qqq_data.tail())
