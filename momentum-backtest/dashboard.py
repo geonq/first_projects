@@ -134,7 +134,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Plotly theme ──────────────────────────────────────────────────────────────
-CHART_LAYOUT = dict(
+CHART_LAYOUT: dict = dict(
     template="plotly_dark",
     paper_bgcolor="#0a0a0f",
     plot_bgcolor="#0f0f1a",
@@ -286,28 +286,59 @@ with tab1:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # Position chart below
-    fig_pos = go.Figure()
-    fig_pos.add_trace(go.Scatter(
-        x=data.index, y=data["position"],
-        name="Position",
-        line=dict(color=color, width=1),
-        fill="tozeroy",
-        fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.15)",
+    # Position calendar heatmap
+    pos = data["position"].copy()
+    pos.index = pd.to_datetime(pos.index)
+
+    # Build week x weekday grid
+    pos_df = pos.to_frame(name="position")
+    pos_df["week"] = pos_df.index.isocalendar().week.astype(int)
+    pos_df["year"] = pos_df.index.year
+    pos_df["weekday"] = pos_df.index.weekday  # 0=Mon, 4=Fri
+    pos_df["week_label"] = pos_df.index.strftime("%Y-W%V")
+
+    # Pivot: rows = weekday, columns = week_label
+    pivot = pos_df.pivot_table(
+        index="weekday", columns="week_label",
+        values="position", aggfunc="first"
+    )
+    pivot = pivot.sort_index()
+
+    # Only keep Mon-Fri (0-4)
+    pivot = pivot.loc[pivot.index.isin([0, 1, 2, 3, 4])]
+    day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+    fig_cal = go.Figure(go.Heatmap(
+        z=pivot.values,
+        x=pivot.columns.tolist(),
+        y=day_labels,
+        colorscale=[
+            [0.0, "#1a1a2e"],   # cash — dark
+            [1.0, color],       # long — strategy colour
+        ],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="Week: %{x}<br>Day: %{y}<br>Position: %{z}<extra></extra>",
     ))
-    fig_pos.update_layout(**CHART_LAYOUT)
-    fig_pos.update_layout(
-        title="Position (1 = Long, 0 = Cash)",
-        height=180,
+
+    fig_cal.update_layout(**CHART_LAYOUT)
+    fig_cal.update_layout(
+        title="Position Calendar (green = long, dark = cash)",
+        height=160,
         margin=dict(l=20, r=20, t=40, b=10),
+        xaxis=dict(
+            showticklabels=False,
+            showgrid=False,
+        ),
+        yaxis=dict(
+            tickvals=[0, 1, 2, 3, 4],
+            ticktext=day_labels,
+            showgrid=False,
+            autorange="reversed",
+        ),
     )
-    fig_pos.update_yaxes(
-        tickvals=[0, 1],
-        ticktext=["Cash", "Long"],
-        gridcolor="#1e1e2e",
-        linecolor="#1e1e2e",
-    )
-    st.plotly_chart(fig_pos, use_container_width=True)
+    st.plotly_chart(fig_cal, use_container_width=True)
 
 # ── Tab 2: Drawdown ───────────────────────────────────────────────────────────
 with tab2:
