@@ -7,24 +7,26 @@ from io import StringIO
 
 trading_days: int = 252
 
-def fetch_fred_rate():
+def fetch_fred_rate(verbose=True):
     response = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS3MO")
+    response.raise_for_status()
     df = pd.read_csv(StringIO(response.text), na_values=["."])
     df = df.dropna()
     risk_free_rate = df["DGS3MO"].iloc[-1].item() / 100
-    print(f"Risk-free rate: {risk_free_rate}")
-    fred_rate_change = df["DGS3MO"].iloc[-1].item() - df["DGS3MO"].iloc[-2].item()
-    last_date = df["observation_date"].iloc[-1]
-    if fred_rate_change > 0:
-        print(f"The risk-free rate has increased {abs(fred_rate_change):.2f}% since {last_date}.")
-    else:
-        print(f"The risk-free rate has decreased {abs(fred_rate_change):.2f}% since {last_date}.")
+    if verbose:
+        print(f"Risk-free rate: {risk_free_rate}")
+        fred_rate_change = df["DGS3MO"].iloc[-1].item() - df["DGS3MO"].iloc[-2].item()
+        prev_date = df["observation_date"].iloc[-2]
+        if fred_rate_change > 0:
+            print(f"The risk-free rate has increased {abs(fred_rate_change):.2f}% since {prev_date}.")
+        else:
+            print(f"The risk-free rate has decreased {abs(fred_rate_change):.2f}% since {prev_date}.")
     return risk_free_rate
 
-def fetch_qqq_data():
-    df = yf.download("QQQ", period="10y")
+def fetch_ticker_data(ticker="QQQ", period="10y"):
+    df = yf.download(ticker, period=period)
     if df is None or df.empty:
-        raise ValueError("Failed to fetch data for QQQ.")
+        raise ValueError(f"Failed to fetch data for {ticker}.")
     df.columns = df.columns.get_level_values(0)
     df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
     df = df.dropna()
@@ -55,7 +57,7 @@ class MomentumBacktest:
                 pd.concat(
                     [self.data[f"mom_{w}"] > 0 for w in self.momentum_windows],
                     axis=1
-                ).sum(axis=1) >= 2
+                ).sum(axis=1) > len(self.momentum_windows) / 2
             ).astype(int)
 
         elif strategy == "ma200":
@@ -66,17 +68,21 @@ class MomentumBacktest:
             ).astype(int)
 
         elif strategy == "long_windows":
-            for w in [30, 60, 90]:
+            long_windows = [30, 60, 90]
+            for w in long_windows:
                 self.data[f"mom_{w}"] = (
                    self.data["log_return"].rolling(window=w).sum()
                 )
             signal = pd.concat(
-                [self.data[f"mom_{w}"] > 0 for w in [30, 60, 90]],
+                [self.data[f"mom_{w}"] > 0 for w in long_windows],
                 axis=1
             ).all(axis=1).astype(int)
 
+        else:
+            raise ValueError(f"Unknown strategy: {strategy!r}")
+
         self.data["position"] = signal.shift(1).fillna(0)
-        self.data["position_change"] = self.data["position"].diff().abs()
+        self.data["position_change"] = self.data["position"].diff().abs().fillna(0)
 
     def calculate_returns(self):
         self.data["strategy_log_return"] = self.data["position"] * self.data["log_return"]
@@ -88,9 +94,10 @@ class MomentumBacktest:
     def calculate_metrics(self):
         total = self.data["strategy_net_log_return"].sum()
         years = len(self.data) / trading_days
-        std_vol = self.data["strategy_net_log_return"].std() * np.sqrt(trading_days)
+        invested = self.data.loc[self.data["position"] == 1, "strategy_net_log_return"]
+        std_vol = invested.std() * np.sqrt(trading_days) if len(invested) > 1 else 0.0
         annualized_return = np.exp(total / years) - 1
-        sharpe = (annualized_return - self.risk_free_rate) / std_vol
+        sharpe = (annualized_return - self.risk_free_rate) / std_vol if std_vol > 0 else 0.0
         running_max = self.data["cumulative_strategy"].cummax()
         drawdown = (self.data["cumulative_strategy"] - running_max) / running_max
         max_drawdown = drawdown.min()
@@ -163,8 +170,9 @@ class MomentumBacktest:
         plt.show()
 
 class MonteCarloValidator:
-    def __init__(self, backtest: MomentumBacktest, n_simulations=10_000):
+    def __init__(self, backtest: MomentumBacktest, strategy: str = "baseline", n_simulations=10_000):
         self.backtest = backtest
+        self.strategy = strategy
         self.n_simulations = n_simulations
         self.simulated_sharpes: np.ndarray = np.array([])
 
@@ -174,21 +182,25 @@ class MonteCarloValidator:
         actual_sharpe = self.backtest.results["sharpe_ratio"]
         sharpes: list[float] = []
 
+        cols = ["log_return"]
+        if "Close" in self.backtest.data.columns:
+            cols.append("Close")
+
         for _ in range(self.n_simulations):
             shuffled = np.random.permutation(log_returns)
             shuffled_series = pd.Series(
                 shuffled,
                 index=self.backtest.data.index
             )
-            sim_df = self.backtest.data.copy()
+            sim_df = self.backtest.data[cols].copy()
             sim_df["log_return"] = shuffled_series
 
             sim_bt = MomentumBacktest(
-                sim_df[["log_return"]],
+                sim_df,
                 self.backtest.risk_free_rate,
                 self.backtest.transaction_cost_bps * 10_000
             )
-            sim_bt.run()
+            sim_bt.run(strategy=self.strategy)
             assert sim_bt.results is not None
             sharpes.append(sim_bt.results["sharpe_ratio"])
 
@@ -235,7 +247,7 @@ if __name__ == "__main__":
         print("FRED unavailable, defaulting to 4%")
         risk_free_rate = 0.04
 
-    qqq_data = fetch_qqq_data()
+    qqq_data = fetch_ticker_data("QQQ")
 
     strategies = ["baseline", "majority", "ma200", "long_windows"]
     summary = []
@@ -247,7 +259,7 @@ if __name__ == "__main__":
         bt.run(strategy=s)
         assert bt.results is not None
 
-        mc = MonteCarloValidator(bt, n_simulations=1000)
+        mc = MonteCarloValidator(bt, strategy=s, n_simulations=1000)
         mc.run()
 
         p_value = (mc.simulated_sharpes >= bt.results["sharpe_ratio"]).mean()
@@ -275,7 +287,8 @@ if __name__ == "__main__":
     plt.figure(figsize=(14, 7))
     for s, bt in backtests.items():
         plt.plot(bt.data.index, bt.data["cumulative_strategy"], label=s)
-    plt.plot(bt.data.index, bt.data["cumulative_buyhold"], label="Buy & Hold", color="black", linestyle="--")
+    bh_bt = next(iter(backtests.values()))
+    plt.plot(bh_bt.data.index, bh_bt.data["cumulative_buyhold"], label="Buy & Hold", color="black", linestyle="--")
     plt.title("Cumulative Returns — All Strategies")
     plt.xlabel("Date")
     plt.ylabel("Growth of $1")
@@ -306,4 +319,5 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid(alpha=0.3)
     plt.show()
+
 
