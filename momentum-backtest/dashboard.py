@@ -28,21 +28,18 @@ st.markdown("""
     /* Global */
     html, body, [class*="css"] {
         font-family: 'IBM Plex Sans', sans-serif;
-        background-color: #0a0a0f;
-        color: #e2e8f0;
     }
 
     /* Main area background */
     .main .block-container {
-        background-color: #0a0a0f;
         padding-top: 2rem;
         max-width: 1400px;
     }
 
     /* Sidebar */
     section[data-testid="stSidebar"] {
-        background-color: #0f0f1a;
-        border-right: 1px solid #1e1e2e;
+        background-color: var(--secondary-background-color);
+        border-right: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent);
     }
     section[data-testid="stSidebar"] * {
         font-family: 'IBM Plex Mono', monospace !important;
@@ -51,8 +48,8 @@ st.markdown("""
 
     /* Metric cards */
     [data-testid="metric-container"] {
-        background: linear-gradient(135deg, #0f0f1a 0%, #13131f 100%);
-        border: 1px solid #1e1e2e;
+        background: var(--secondary-background-color);
+        border: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent);
         border-radius: 8px;
         padding: 1rem 1.2rem;
     }
@@ -61,13 +58,13 @@ st.markdown("""
         font-size: 0.7rem !important;
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        color: #64748b !important;
+        color: color-mix(in srgb, var(--text-color) 50%, transparent) !important;
     }
     [data-testid="metric-container"] [data-testid="stMetricValue"] {
         font-family: 'IBM Plex Mono', monospace !important;
         font-size: 1.6rem !important;
         font-weight: 600;
-        color: #e2e8f0 !important;
+        color: var(--text-color) !important;
     }
     [data-testid="metric-container"] [data-testid="stMetricDelta"] {
         font-family: 'IBM Plex Mono', monospace !important;
@@ -77,27 +74,25 @@ st.markdown("""
     /* Tab styling */
     .stTabs [data-baseweb="tab-list"] {
         gap: 0;
-        background-color: #0f0f1a;
-        border-bottom: 1px solid #1e1e2e;
+        background-color: var(--secondary-background-color) !important;
     }
     .stTabs [data-baseweb="tab"] {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 0.75rem;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #475569;
+        color: color-mix(in srgb, var(--text-color) 45%, transparent);
         padding: 0.6rem 1.4rem;
         background: transparent;
-        border: none;
     }
     .stTabs [aria-selected="true"] {
-        color: #38bdf8 !important;
-        border-bottom: 2px solid #38bdf8 !important;
+        color: var(--primary-color) !important;
+        box-shadow: inset 0 -2px 0 var(--primary-color) !important;
         background: transparent !important;
     }
 
     /* Divider */
-    hr { border-color: #1e1e2e; }
+    hr { border-color: color-mix(in srgb, var(--text-color) 12%, transparent); }
 
     /* Dataframe */
     [data-testid="stDataFrame"] {
@@ -106,7 +101,7 @@ st.markdown("""
     }
 
     /* Spinner */
-    .stSpinner > div { border-top-color: #38bdf8 !important; }
+    .stSpinner > div { border-top-color: var(--primary-color) !important; }
 
     /* Alert / info boxes */
     .stAlert {
@@ -121,27 +116,26 @@ st.markdown("""
         font-size: 1.4rem !important;
         font-weight: 600 !important;
         letter-spacing: 0.05em;
-        color: #f1f5f9 !important;
+        color: var(--text-color) !important;
     }
     h2, h3 {
         font-family: 'IBM Plex Mono', monospace !important;
         font-size: 0.9rem !important;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #64748b !important;
+        color: color-mix(in srgb, var(--text-color) 50%, transparent) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Plotly theme ──────────────────────────────────────────────────────────────
 CHART_LAYOUT: dict = dict(
-    template="plotly_dark",
-    paper_bgcolor="#0a0a0f",
-    plot_bgcolor="#0f0f1a",
-    font=dict(family="IBM Plex Mono", size=11, color="#94a3b8"),
-    xaxis=dict(gridcolor="#1e1e2e", linecolor="#1e1e2e", zeroline=False),
-    yaxis=dict(gridcolor="#1e1e2e", linecolor="#1e1e2e", zeroline=False),
-    legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#1e1e2e", borderwidth=1),
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="IBM Plex Mono", size=11),
+    xaxis=dict(zeroline=False),
+    yaxis=dict(zeroline=False),
+    legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=1),
     hovermode="x unified",
 )
 
@@ -290,52 +284,82 @@ with tab1:
     pos = data["position"].copy()
     pos.index = pd.to_datetime(pos.index)
 
-    # Build week x weekday grid
     pos_df = pos.to_frame(name="position")
-    pos_df["week"] = pos_df.index.isocalendar().week.astype(int)
-    pos_df["year"] = pos_df.index.year
+    pos_df["day"]     = pos_df.index.day
+    pos_df["month"]   = pos_df.index.to_period("M").astype(str)  # "2024-03"
     pos_df["weekday"] = pos_df.index.weekday  # 0=Mon, 4=Fri
-    pos_df["week_label"] = pos_df.index.strftime("%Y-W%V")
 
-    # Pivot: rows = weekday, columns = week_label
+    # Pivot: rows = day-of-month (1-31), columns = month
     pivot = pos_df.pivot_table(
-        index="weekday", columns="week_label",
+        index="day", columns="month",
         values="position", aggfunc="first"
     )
     pivot = pivot.sort_index()
 
-    # Only keep Mon-Fri (0-4)
-    pivot = pivot.loc[pivot.index.isin([0, 1, 2, 3, 4])]
-    day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    # Shorten month labels: "2024-03" → "Mar 24"
+    from datetime import datetime
+    col_labels = [
+        datetime.strptime(m, "%Y-%m").strftime("%b %y")
+        for m in pivot.columns
+    ]
+
+    # Build hover text matrix manually — coloured square + label
+    hover_text = []
+    days = pivot.index.tolist()
+    for i, row in enumerate(pivot.values):
+        hover_row = []
+        for v in row:
+            day_label = f"Day {days[i]}"
+            if v == 1:
+                hover_row.append(f'{day_label}<br><span style="color:{color}; vertical-align:middle">■</span> Long')
+            elif v == 0:
+                hover_row.append(f'{day_label}<br><span style="color:#12121e; vertical-align:middle">■</span> Cash')
+            else:
+                hover_row.append(f'{day_label}<br><span style="color:#475569; vertical-align:middle">■</span> Market closed')
+        hover_text.append(hover_row)
+
+    pivot_filled = pivot.fillna(-1)
 
     fig_cal = go.Figure(go.Heatmap(
-        z=pivot.values,
-        x=pivot.columns.tolist(),
-        y=day_labels,
+        z=pivot_filled.values,
+        x=col_labels,
+        y=pivot.index.tolist(),
         colorscale=[
-            [0.0, "#1a1a2e"],   # cash — dark
-            [1.0, color],       # long — strategy colour
+            [0.0, "#0a0a0f"],    # -1 → background (market closed)
+            [0.5, "#12121e"],    # 0  → cash
+            [1.0, color],        # 1  → long
         ],
+        zmin=-1,
+        zmax=1,
         showscale=False,
-        xgap=2,
-        ygap=2,
-        hovertemplate="Week: %{x}<br>Day: %{y}<br>Position: %{z}<extra></extra>",
+        xgap=3,
+        ygap=3,
+        text=hover_text,
+        hoverinfo="text",
+        hoverlabel=dict(bgcolor="#1e1e2e", bordercolor="#1e1e2e"),
     ))
+
+    # Show most recent months on the right — start scrolled all the way right
+    n_visible = 18  # months visible at once
+    x_range = [len(col_labels) - n_visible - 0.5, len(col_labels) - 0.5]
 
     fig_cal.update_layout(**CHART_LAYOUT)
     fig_cal.update_layout(
-        title="Position Calendar (green = long, dark = cash)",
-        height=160,
+        hovermode="closest",
+        title="Position Calendar — scroll left to see history",
+        height=320,
         margin=dict(l=20, r=20, t=40, b=10),
         xaxis=dict(
-            showticklabels=False,
+            range=x_range,
             showgrid=False,
+            tickangle=-45,
+            rangeslider=dict(visible=True, thickness=0.06),
         ),
         yaxis=dict(
-            tickvals=[0, 1, 2, 3, 4],
-            ticktext=day_labels,
+            showticklabels=False,
             showgrid=False,
-            autorange="reversed",
+            autorange="reversed",   # day 1 at top
+            fixedrange=True,
         ),
     )
     st.plotly_chart(fig_cal, use_container_width=True)
