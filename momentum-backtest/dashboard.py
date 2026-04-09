@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import requests
+from datetime import datetime
 
 from momentum_backtest import (
     fetch_fred_rate,
@@ -157,7 +158,11 @@ STRATEGY_LABELS = {
 # ── Cached data loading ───────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def load_market_data(ticker, period):
-    return fetch_ticker_data(ticker, period)
+    try:
+        return fetch_ticker_data(ticker, period)
+    except (ValueError, Exception) as e:
+        st.error(f"Failed to fetch data for {ticker}: {e}")
+        st.stop()
 
 @st.cache_data(show_spinner=False)
 def load_risk_free_rate():
@@ -166,7 +171,7 @@ def load_risk_free_rate():
     except requests.exceptions.RequestException:
         return 0.04
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False, max_entries=1)
 def run_all_backtests(ticker, period, tx_cost_bps):
     data = load_market_data(ticker, period)
     rfr  = load_risk_free_rate()
@@ -177,9 +182,8 @@ def run_all_backtests(ticker, period, tx_cost_bps):
         results[s] = bt
     return results, rfr
 
-@st.cache_data(show_spinner=False)
-def run_all_monte_carlos(ticker, period, tx_cost_bps, n_sims):
-    backtests, _ = run_all_backtests(ticker, period, tx_cost_bps)
+@st.cache_resource(show_spinner=False, max_entries=1)
+def run_all_monte_carlos(backtests, n_sims):
     mc_results = {}
     for s, bt in backtests.items():
         mc = MonteCarloValidator(bt, strategy=s, n_simulations=n_sims)
@@ -192,7 +196,7 @@ with st.sidebar:
     st.markdown("### PARAMETERS")
     st.markdown("---")
 
-    ticker   = st.selectbox("Ticker", ["QQQ", "SPY", "IWM"], index=0)
+    ticker   = st.selectbox("Ticker", ["QQQ", "SPY", "CL=F"], index=0)
     period   = st.selectbox("History", ["5y", "10y", "15y"], index=1)
     strategy = st.selectbox(
         "Strategy",
@@ -297,7 +301,6 @@ with tab1:
     pivot = pivot.sort_index()
 
     # Shorten month labels: "2024-03" → "Mar 24"
-    from datetime import datetime
     col_labels = [
         datetime.strptime(m, "%Y-%m").strftime("%b %y")
         for m in pivot.columns
@@ -404,7 +407,7 @@ with tab2:
 with tab3:
     if run_mc:
         with st.spinner(f"Running {n_sims:,} simulations across all 4 strategies..."):
-            mc_all = run_all_monte_carlos(ticker, period, tx_cost, n_sims)
+            mc_all = run_all_monte_carlos(all_backtests, n_sims)
 
         fig_mc = go.Figure()
 
