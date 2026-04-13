@@ -2,7 +2,6 @@ import yfinance as yf               # fetches real stock/options data from Yahoo
 import numpy as np                  # math operations on arrays
 import scipy.stats as si            # statistical functions — specifically the normal distribution
 import matplotlib.pyplot as plt     # creates charts
-import mplfinance as mpf            # financial charts (candlesticks etc) — imported but not used here
 import plotly.graph_objects as go   # interactive charts — imported but not used here
 from datetime import datetime       # date handling — imported but not used here
 
@@ -17,6 +16,11 @@ def fetch_options_data(QQQ):
 jpm_calls, jpm_puts = fetch_options_data('JPM')
 qqq_stock_data = yf.download('QQQ', period='1y')
 jpm_stock_data = yf.download('JPM', period='1y')
+
+if jpm_stock_data is None or jpm_stock_data.empty:
+    raise ValueError("Failed to download JPM stock data")
+if qqq_stock_data is None or qqq_stock_data.empty:
+    raise ValueError("Failed to download QQQ stock data")
 
 plt.figure(figsize=(10, 5))             # create a figure 10 inches wide, 5 inches tall
 plt.plot(jpm_stock_data['Close'])       # plot only the closing price
