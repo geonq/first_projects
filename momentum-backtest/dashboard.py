@@ -183,9 +183,9 @@ def run_all_backtests(ticker, period, tx_cost_bps):
     return results, rfr
 
 @st.cache_resource(show_spinner=False, max_entries=1)
-def run_all_monte_carlos(backtests, n_sims):
+def run_all_monte_carlos(_backtests, n_sims):
     mc_results = {}
-    for s, bt in backtests.items():
+    for s, bt in _backtests.items():
         mc = MonteCarloValidator(bt, strategy=s, n_simulations=n_sims)
         mc.run()
         mc_results[s] = mc
